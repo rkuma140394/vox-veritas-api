@@ -1,0 +1,51 @@
+const express = require('express');
+const cors = require('cors');
+const { GoogleGenAI, Type } = require('@google/genai');
+const app = express();
+
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+
+// Use environment variable for the API key
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+app.post('/detect', async (req, res) => {
+  // Authentication check for HCL Tester
+  if (req.headers['x-api-key'] !== 'vox_prod_8291_x021') {
+    return res.status(401).json({ error: 'Unauthorized: Invalid x-api-key' });
+  }
+
+  const audioBase64 = req.body['Audio Base64 Format'];
+  const language = req.body['Language'] || 'English';
+  const audioFormat = req.body['Audio Format'] || 'mp3';
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        { inlineData: { data: audioBase64, mimeType: `audio/${audioFormat}` } },
+        { text: `Classify this ${language} voice sample as AI_GENERATED or HUMAN.` }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            classification: { type: Type.STRING },
+            confidenceScore: { type: Type.NUMBER },
+            explanation: { type: Type.STRING },
+            languageDetected: { type: Type.STRING },
+            artifactsFound: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ['classification', 'confidenceScore', 'explanation', 'languageDetected', 'artifactsFound'],
+        }
+      }
+    });
+    
+    res.json(JSON.parse(response.text));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(process.env.PORT || 3000, () => console.log('Server running'));
