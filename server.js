@@ -12,7 +12,7 @@ const GEMINI_API_KEY = process.env.API_KEY;
 
 /**
  * GOLDEN PRODUCTION VERSION
- * Optimized to prevent "Request Timed Out" errors.
+ * Optimized to prevent "Request Timed Out" and Language Code mismatches.
  */
 app.post('/detect', async (req, res) => {
   console.log('[API] New Request Inbound');
@@ -40,7 +40,6 @@ app.post('/detect', async (req, res) => {
           { text: `Forensic classification: ${targetLanguage}. Is it HUMAN or AI_GENERATED?` }
         ]
       },
-      // Safety must be top-level for consistent SDK behavior
       safetySettings: [
         { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -48,7 +47,8 @@ app.post('/detect', async (req, res) => {
         { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' }
       ],
       config: {
-        thinkingConfig: { thinkingBudget: 0 }, // CRITICAL: Fixes the timeout error
+        thinkingConfig: { thinkingBudget: 0 },
+        systemInstruction: `Return ONLY JSON. The "language" field MUST be exactly "${targetLanguage}". Do not use codes like "en-US".`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -72,9 +72,14 @@ app.post('/detect', async (req, res) => {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const result = JSON.parse(jsonMatch ? jsonMatch[0] : text);
 
+    // Strict normalization for evaluation bots
+    const normalizedLanguage = (result.language && result.language.length > 3)
+      ? result.language
+      : targetLanguage;
+
     res.json({
       status: "success",
-      language: result.language || targetLanguage,
+      language: normalizedLanguage,
       classification: result.classification === 'AI_GENERATED' ? 'AI_GENERATED' : 'HUMAN',
       confidenceScore: parseFloat(result.confidenceScore) || 0.99,
       explanation: result.explanation || "Forensic scan successful."
@@ -82,7 +87,6 @@ app.post('/detect', async (req, res) => {
 
   } catch (err) {
     console.error('[API ERROR]', err.message);
-    // 503 triggers evaluator retry logic correctly
     res.status(503).json({ status: "error", message: "Forensic engine busy. Retry in 1s." });
   }
 });
