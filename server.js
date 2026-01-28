@@ -5,45 +5,45 @@ const app = express();
 
 app.use(cors());
 
-// Support JSON, Form-Encoded, and Raw Text (for direct base64 uploads)
+// Support JSON and Form data with large limits
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(express.text({ limit: '50mb', type: 'text/*' }));
 
 const AUTH_KEY = process.env.CLIENT_KEY || 'vox_secure_789';
 const GEMINI_API_KEY = process.env.API_KEY;
 
 app.post('/detect', async (req, res) => {
-  console.log('--- Incoming Request ---');
-  console.log('Headers:', req.headers['content-type']);
+  console.log('--- Incoming Forensic Request ---');
+  console.log('Keys Received:', Object.keys(req.body));
 
   // 1. Auth Check
   if (req.headers['x-api-key'] !== AUTH_KEY) {
-    return res.status(401).json({ error: "Unauthorized", message: "Missing or invalid X-API-KEY header." });
+    return res.status(401).json({ error: "Unauthorized", message: "Invalid X-API-KEY header." });
   }
 
-  // 2. OMNI-DETECTION: Look for audio data in every possible location
-  let rawAudio = null;
+  // 2. EXTRACTION FIX: Added 'audioBase64' to the search list
+  let rawAudio = req.body.audio ||
+    req.body.audioBase64 ||
+    req.body.audioData ||
+    req.body['Audio Base64 Format'] ||
+    req.body.file ||
+    req.body.data;
 
-  if (typeof req.body === 'string' && req.body.length > 100) {
-    // Case: User sent the raw base64 string as the body
-    rawAudio = req.body;
-  } else if (req.body) {
-    // Case: User sent JSON or Form data
-    rawAudio = req.body.audio || req.body.audioData || req.body.file || req.body.data;
-  }
+  const language = req.body.language || req.body.Language || 'English';
 
   if (!rawAudio || rawAudio.length < 100) {
-    console.error('Validation Error: No audio found in body');
+    console.error('FAIL: No audio data found in keys:', Object.keys(req.body));
     return res.status(400).json({
       error: "No audio data",
-      receivedKeys: req.body ? Object.keys(req.body) : 'none',
-      tip: "Ensure you are sending a JSON body like {\"audio\": \"...base64...\"} with Content-Type: application/json"
+      receivedKeys: Object.keys(req.body),
+      tip: "Please ensure your JSON body uses the key 'audio' or 'audioBase64'."
     });
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+    // Auto-strip base64 data URIs
     const cleanBase64 = rawAudio.includes(',') ? rawAudio.split(',')[1] : rawAudio;
 
     const response = await ai.models.generateContent({
@@ -51,7 +51,7 @@ app.post('/detect', async (req, res) => {
       contents: {
         parts: [
           { inlineData: { data: cleanBase64, mimeType: "audio/mp3" } },
-          { text: "Linguistic Forensic Analysis. Output JSON." }
+          { text: `Forensic analysis for ${language} voice. Detect Deepfake vs Human.` }
         ]
       },
       config: {
@@ -70,12 +70,18 @@ app.post('/detect', async (req, res) => {
       }
     });
 
+    console.log('SUCCESS: Analysis Complete');
     res.json(JSON.parse(response.text));
   } catch (err) {
-    console.error('Gemini Error:', err.message);
+    console.error('SYSTEM ERROR:', err.message);
     res.status(500).json({ error: "Analysis failed", detail: err.message });
   }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => console.log(`Omni-Input API active on port ${PORT}`));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log('=========================================');
+  console.log(`VOXVERITAS API LIVE: http://localhost:${PORT}`);
+  console.log('Listening for audio or audioBase64 keys...');
+  console.log('=========================================');
+});
