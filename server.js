@@ -11,8 +11,8 @@ const AUTH_KEY = process.env.CLIENT_KEY || 'vox_secure_789';
 const GEMINI_API_KEY = process.env.API_KEY;
 
 /**
- * GOLDEN PRODUCTION VERSION
- * Optimized to prevent "Request Timed Out" and Language Code mismatches.
+ * GOLDEN PRODUCTION VERSION - ACOUSTIC FORENSICS UPDATE
+ * Instructs model to ignore text content and focus purely on voice texture.
  */
 app.post('/detect', async (req, res) => {
   console.log('[API] New Request Inbound');
@@ -32,23 +32,21 @@ app.post('/detect', async (req, res) => {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const cleanBase64 = rawAudio.includes(',') ? rawAudio.split(',')[1] : rawAudio;
 
+    // Fix: Removed safetySettings which is not supported in GenerateContentParameters
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { data: cleanBase64, mimeType: "audio/mp3" } },
-          { text: `Forensic classification: ${targetLanguage}. Is it HUMAN or AI_GENERATED?` }
+          { text: `Forensic scan for ${targetLanguage}. Ignore text content, focus on acoustics.` }
         ]
       },
-      safetySettings: [
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' }
-      ],
       config: {
         thinkingConfig: { thinkingBudget: 0 },
-        systemInstruction: `Return ONLY JSON. The "language" field MUST be exactly "${targetLanguage}". Do not use codes like "en-US".`,
+        systemInstruction: `You are a forensic audio expert. 
+        DO NOT classify based on WHAT is said. Even if a human says "I am a robot", classify as HUMAN if the voice has natural textures.
+        Look for: Glottal stops, natural aspiration, and room reverb (HUMAN) vs spectral voids and vocoder jitter (AI).
+        The "language" field MUST be exactly "${targetLanguage}".`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -72,7 +70,6 @@ app.post('/detect', async (req, res) => {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const result = JSON.parse(jsonMatch ? jsonMatch[0] : text);
 
-    // Strict normalization for evaluation bots
     const normalizedLanguage = (result.language && result.language.length > 3)
       ? result.language
       : targetLanguage;
