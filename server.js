@@ -4,69 +4,57 @@ const { GoogleGenAI, Type } = require('@google/genai');
 const app = express();
 
 app.use(cors());
-// 1. INCREASE LIMITS: Essential for Base64 strings which are large
+
+// Support JSON, Form-Encoded, and Raw Text (for direct base64 uploads)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.text({ limit: '50mb', type: 'text/*' }));
 
 const AUTH_KEY = process.env.CLIENT_KEY || 'vox_secure_789';
 const GEMINI_API_KEY = process.env.API_KEY;
 
-const wait = (ms) => new Promise(res => setTimeout(res, ms));
-
-async function callGemini(ai, model, contents, config, retries = 3) {
-  try {
-    const response = await ai.models.generateContent({ model, contents, config });
-    return JSON.parse(response.text);
-  } catch (err) {
-    if ((err.message.includes('503') || err.message.includes('429')) && retries > 0) {
-      console.log(`Forensic Engine busy. Retrying... (${retries} attempts left)`);
-      await wait(2000 * (4 - retries));
-      return callGemini(ai, model, contents, config, retries - 1);
-    }
-    throw err;
-  }
-}
-
 app.post('/detect', async (req, res) => {
-  // 1. Authentication Check
+  console.log('--- Incoming Request ---');
+  console.log('Headers:', req.headers['content-type']);
+
+  // 1. Auth Check
   if (req.headers['x-api-key'] !== AUTH_KEY) {
-    return res.status(401).json({ error: "Invalid API Key" });
+    return res.status(401).json({ error: "Unauthorized", message: "Missing or invalid X-API-KEY header." });
   }
 
-  // 2. ULTRA-FLEXIBLE DATA EXTRACTION
-  // We check every common field name to prevent "No audio data" errors
-  const rawAudio = req.body.audio ||
-    req.body.audioData ||
-    req.body['Audio Base64 Format'] ||
-    req.body.file ||
-    req.body.data ||
-    req.body.base64;
+  // 2. OMNI-DETECTION: Look for audio data in every possible location
+  let rawAudio = null;
 
-  const language = req.body.language || req.body.Language || 'English';
+  if (typeof req.body === 'string' && req.body.length > 100) {
+    // Case: User sent the raw base64 string as the body
+    rawAudio = req.body;
+  } else if (req.body) {
+    // Case: User sent JSON or Form data
+    rawAudio = req.body.audio || req.body.audioData || req.body.file || req.body.data;
+  }
 
   if (!rawAudio || rawAudio.length < 100) {
+    console.error('Validation Error: No audio found in body');
     return res.status(400).json({
       error: "No audio data",
-      message: "Validation failed: Please send a JSON body with the 'audio' key containing a Base64 string. Ensure you use 'Content-Type: application/json'."
+      receivedKeys: req.body ? Object.keys(req.body) : 'none',
+      tip: "Ensure you are sending a JSON body like {\"audio\": \"...base64...\"} with Content-Type: application/json"
     });
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    const cleanBase64 = rawAudio.includes(',') ? rawAudio.split(',')[1] : rawAudio;
 
-    // 3. AUTO-CLEANING: Remove Data URI prefix if the user included it (e.g. data:audio/mp3;base64,...)
-    const base64Data = rawAudio.includes(',') ? rawAudio.split(',')[1] : rawAudio;
-
-    const result = await callGemini(
-      ai,
-      "gemini-3-flash-preview",
-      {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
         parts: [
-          { inlineData: { data: base64Data, mimeType: "audio/mp3" } },
-          { text: "Forensic linguistic classification for: " + language }
+          { inlineData: { data: cleanBase64, mimeType: "audio/mp3" } },
+          { text: "Linguistic Forensic Analysis. Output JSON." }
         ]
       },
-      {
+      config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -80,11 +68,14 @@ app.post('/detect', async (req, res) => {
           required: ['classification', 'confidenceScore', 'explanation', 'languageDetected', 'artifactsFound'],
         }
       }
-    );
-    res.json(result);
+    });
+
+    res.json(JSON.parse(response.text));
   } catch (err) {
-    res.status(500).json({ error: "Analysis engine failed", detail: err.message });
+    console.error('Gemini Error:', err.message);
+    res.status(500).json({ error: "Analysis failed", detail: err.message });
   }
 });
 
-app.listen(3000, () => console.log("FIXED API LIVE: http://localhost:3000"));
+const PORT = 3000;
+app.listen(PORT, () => console.log(`Omni-Input API active on port ${PORT}`));
