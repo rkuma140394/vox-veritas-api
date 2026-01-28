@@ -5,17 +5,12 @@ const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 const AUTH_KEY = process.env.CLIENT_KEY || 'vox_secure_789';
 const GEMINI_API_KEY = process.env.API_KEY;
 
-/**
- * VOX VERITAS R5.0 - HACKATHON PRODUCTION CORE
- * Optimized for 100% Accuracy & Evaluation Criteria
- */
 app.post('/detect', async (req, res) => {
-  // CRITERIA: Strict Error Format Compliance
+  // Evaluation Requirement: Strict Error Protocol
   if (req.headers['x-api-key'] !== AUTH_KEY) {
     return res.status(401).json({
       status: "error",
@@ -26,7 +21,7 @@ app.post('/detect', async (req, res) => {
   const rawAudio = req.body.audioBase64 || req.body.audio || req.body['Audio Base64 Format'];
   const targetLanguage = req.body.language || req.body.Language || 'English';
 
-  if (!rawAudio || rawAudio.length < 50) {
+  if (!rawAudio || rawAudio.length < 100) {
     return res.status(400).json({
       status: "error",
       message: "Invalid API key or malformed request"
@@ -38,56 +33,42 @@ app.post('/detect', async (req, res) => {
     const cleanBase64 = rawAudio.includes(',') ? rawAudio.split(',')[1] : rawAudio;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", // Flash provides higher stability for binary audio requests
-      contents: {
+      model: "gemini-3-flash-preview",
+      contents: [{
         parts: [
           { inlineData: { data: cleanBase64, mimeType: "audio/mp3" } },
-          { text: `Forensic Accuracy Audit: ${targetLanguage}` }
+          { text: "Forensic Accuracy Audit: " + targetLanguage }
         ]
-      },
+      }],
       config: {
-        thinkingConfig: { thinkingBudget: 0 },
-        systemInstruction: `Perform Zero-Tolerance Forensic Audit.
-        Detect Spectral Voids, Phase-Locked Sibilance, and Digital Silence Floors.
-        Classify as AI_GENERATED if mathematical perfection is found.
-        Classify as HUMAN if biological artifacts (mouth noise, natural breathing) are found.
-        Return ONLY valid JSON.`,
+        systemInstruction: "Detect synthetic artifacts. Focus on South Asian retroflex consonants and breath patterns. Return valid JSON only.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            status: { type: Type.STRING },
-            language: { type: Type.STRING },
             classification: { type: Type.STRING },
             confidenceScore: { type: Type.NUMBER },
             explanation: { type: Type.STRING },
+            artifactsFound: { type: Type.ARRAY, items: { type: Type.STRING } }
           },
-          required: ['status', 'language', 'classification', 'confidenceScore', 'explanation'],
+          required: ['classification', 'confidenceScore', 'explanation', 'artifactsFound']
         }
       }
     });
 
-    if (response.candidates?.[0]?.finishReason === 'SAFETY') {
-      return res.status(422).json({
-        status: "error",
-        message: "Invalid API key or malformed request"
-      });
-    }
+    const result = JSON.parse(response.text);
 
-    const text = response.text;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    const result = JSON.parse(jsonMatch ? jsonMatch[0] : text);
-
+    // Evaluation Requirement: Correct Response Format
     res.json({
       status: "success",
-      language: result.language || targetLanguage,
-      classification: result.classification === 'AI_GENERATED' ? 'AI_GENERATED' : 'HUMAN',
-      confidenceScore: parseFloat(result.confidenceScore) || 1.0,
-      explanation: result.explanation || "Acoustic fingerprints successfully validated."
+      language: targetLanguage,
+      classification: result.classification,
+      confidenceScore: result.confidenceScore,
+      explanation: result.explanation,
+      artifactsFound: result.artifactsFound
     });
 
   } catch (err) {
-    // CRITERIA: Final fallback error response
     res.status(503).json({
       status: "error",
       message: "Invalid API key or malformed request"
@@ -95,5 +76,4 @@ app.post('/detect', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('VoxVeritas Production v5.0 Live'));
+app.listen(3000, () => console.log('VoxVeritas Production API Live'));
